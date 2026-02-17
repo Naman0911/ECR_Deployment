@@ -50,5 +50,5 @@ def predict_datapoint():                                       # This function w
 
 
 if  __name__ == "__main__":
-    app.run(host = "0.0.0.0")
+    app.run(host = "0.0.0.0",port = 8080)
     # While deploying we don't use debug = True
