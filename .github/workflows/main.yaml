@@ -63,7 +63,7 @@ jobs:                                           # The Jobs will be have three pa
           echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
 
 
-  Continuous Deployment:                         # For the Continuous Deployment we need to this job which Requires the build job to be finished first.
+  continuous deployment:                         # For the Continuous Deployment we need to this job which Requires the build job to be finished first.
     needs: build-and-push-ecr-image
     runs-on: self-hosted                           # ECR image will run on the Self hosted app runner
     steps:
