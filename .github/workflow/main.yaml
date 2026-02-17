@@ -1,0 +1,103 @@
+name: workflow                                  # The name of the workflow is workflow , which is containing all the CI/CD pipeline code
+
+on:                                             # Whenever a push is happening on the main branch the README.md file is ignored and rest all will be pushed to our deployment
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'README.md'
+
+premissions:
+  id-token: write
+  contents: read
+
+jobs:                                           # The Jobs will be have three parts , first is the Integration , Second is the build-and-push-ecr-image and then third will be continuous deployment
+  integration:                                  # The Integration Part is the part which is telling to integrate continously
+    name: Continuous Integration
+    runs-on: ubuntu-latest                      # Tells to run on the ubuntu latest machine
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Lint code                         # We have used to do some prinitng some linting is happening means the echo command which is of the linux helps in prinitng
+        run: echo "Linting repository"
+
+      - name: Run unit tests                    # This tells that we can run all the unit test cases to see wether everything is working or not
+        run: echo "Running Unit Tests"
+
+  build-and-push-ecr-image:                     # An ECR image is an Image which we can say that is the Docker image only but it is not pushed publicly , after pushing only the designated Users are allowed to use it . This is used to put an Private Image on the AWS using ECR repository
+    name: Continuous Delivery
+    needs: integration                          # It needs integration , means unless and untill the integration part is not completed it will not go ahead
+    runs-on: ubuntu-latest                      # It will run on ubuntu latest
+    steps:                                      
+      - name: Checkout Code                     # It will checkout the code from github
+        uses: actions/checkout@v3
+
+      - name: Install Utilities                 # It will install all the necessary libraries that is required to update the packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq unzip
+      - name: Configure AWS credentials         # Then it will configure the AWS Credential
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}           # Now we have the secret access key, id and region , All this are coming from the particular credentials , from the IAM user only
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR               # Then we will login into the AMAZON Aws ECR
+        id: login-ecr
+        uses: aws-action/amazon-ecr-login@v1
+
+      - name: Build, tag, and push image to Amazon ECR                  # After Logging We will tag and Push the Image to ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
+          IMAGE_TAG: latest
+        run: |
+          # Build a Docker container and
+          # push it to ECR so that it can
+          # be deployed to ECS.
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+
+  Continuous Deployment:                         # For the Continuous Deployment we need to this job which Requires the build job to be finished first.
+  needs: build-and-push-ecr-image
+  runs-on: self-hosted                           # ECR image will run on the Self hosted app runner
+  steps:
+    - name: Checkout                             # Checkouts the code from github Repo
+      uses: actions/checkout@v3
+
+    - name: Configure AWS credentials            # Configure the AWS Credentials 
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    - name: Login to Amazon ECR                  # Login in to the ECR with this Particular Credentials
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
+
+    
+    - name: Pull latest images
+      run: |
+        docker pull ${{secrets.AWS_ECR_LOGIN_URL}}/${{ secrets.ECR_REPOSITORY_NAME }}:latest
+
+      # - name: Stop and remove container if running
+      #   run: |
+      #     docker ps -q --filter "name=mltest" | grep -q . && docker stop mltest && docker rm -fv mltest
+
+    - name: Run Docker Image to the Serve users
+      run: |                                        # By using the below command we will try to run the docker image and also be able to see this particular app name
+        docker run -d -p 8080:8080 --ipc="host" --name=mltest -e 'AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}' - e 'AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}' -e 'AWS_REGION=${{ secrets.AWS_REGION }}'  ${{secrets.AWS_ECR_LOGIN_URI}}/${{ secrets.ECR_REPOSITORY_NAME }}:latest       
+    - name: Clean previous images and containers
+      run: |
+        docker system prune -f
+
+
+
+# This is already present in the marketplace of GITHUB , which provides the code of how to place an Image from github to ECR
+# We need to go on the Github repo in which we go on the actions in which we select to create an workflow where we can choose the Deployment type and then we can get the code
